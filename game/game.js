@@ -9242,24 +9242,28 @@
               if(extensionlist.length&&(lib.config.mode!='connect'||show_splash)){
                 _status.extensionLoading=[];
                 let extToLoad=extensionlist.length;
-                const eventTarget=new EventTarget();
+                const eventTarget=document.createElement("div");
                 const extLoadResult={};
                 const depMap={};
                 eventTarget.addEventListener("extLoadedAll",()=>{
                   const errMsgs=[];
                   const joinExtNames=(names)=>names.map(n=>`【${n}】`).join("、");
                   for(const name in extLoadResult){
-                    const error=extLoadResult[name].error;
-                    if(error){
-                      const {depsMissing,depsFailed,depsCircle}=error;
-                      if(depsMissing&&depsMissing.length>0){
+                    const error = extLoadResult[name].error;
+                    if (error) {
+                      const depsMissing = error.depsMissing;
+                      const depsFailed = error.depsFailed;
+                      const depsCircle = error.depsCircle;
+                      if (depsMissing && depsMissing.length > 0) {
                         errMsgs.push(`【${name}】缺少依赖扩展：${joinExtNames(depsMissing)}`);
                       }
-                      if(depsFailed&&depsFailed.length>0){
+                      if (depsFailed && depsFailed.length > 0) {
                         errMsgs.push(`【${name}】依赖扩展加载失败：${joinExtNames(depsFailed)}`);
                       }
-                      if(depsCircle&&depsCircle.length>0){
-                        errMsgs.push(`【${name}】扩展循环依赖：${joinExtNames(depsCircle.map((v)=>v.join("->")))}`);
+                      if (depsCircle && depsCircle.length > 0) {
+                        errMsgs.push(`【${name}】扩展循环依赖：${joinExtNames(depsCircle.map(function (v) {
+                          return v.join("->");
+                        }))}`);
                       }
                     }
                   }
@@ -9296,7 +9300,9 @@
                     result.error={};
                   }
                   const keys=[["depMissing","depsMissing"],["depFailed","depsFailed"],["depCircle","depsCircle"],["msg","msgs"]];
-                  for(const [k1,k2] of keys){
+                  for(const group of keys){
+                    const k1=group[0];
+                    const k2=group[1];
                     if(error[k1]){
                       if (!result.error[k2]){
                         result.error[k2]=[];
@@ -9307,7 +9313,10 @@
                   eventTarget.dispatchEvent(new CustomEvent("extLoaded",{detail:{name,fulfilled:false}}));
                   yield extLoadAfter();
                 });
-                const getDepPath=(from,to,map=depMap)=>{
+                const getDepPath=(from,to,map)=>{
+                  if(!map){
+                    map=depMap;
+                  }
                   if (map[from]) {
                     if(map[from][to]){
                       return [from,to];
@@ -9315,7 +9324,7 @@
                       for(const name in map[from]){
                         const subPath=getDepPath(name,to,map[from]);
                         if(subPath){
-                          return [from,...subPath];
+                          return [from].concat(subPath);
                         }
                       }
                     }
@@ -9347,9 +9356,9 @@
                     return new Promise((resolve)=>{
                       const path=getDepPath(target, name);
                       if(path){
-                        extError(name,{depCircle:[name,...path]},false);
+                        extError(name,{depCircle:[name].concat(path)},false);
                         resolve();
-                      }else if(!extensionlist.includes(target)){
+                      }else if(!extensionlist.contains(target)){
                         extError(name,{depMissing:target},false);
                         resolve();
                       }else if(extLoadResult[target]){
@@ -9373,10 +9382,14 @@
                     })
                   }
                   new Promise((resolve)=>{
+                    if(!game.readFileAsText){
+                      resolve();
+                      return;
+                    }
                     game.readFileAsText(extDir+"/info.json",(text)=>{
                       try{
-                        const {dependencies}=JSON.parse(text);
-                        Promise.all(dependencies.map((target)=>waitForExtension(curr,target))).then(()=>{
+                        const info=JSON.parse(text);
+                        Promise.all(info.dependencies.map((target)=>waitForExtension(curr,target))).then(()=>{
                           resolve();
                         });
                       }catch(e){
@@ -9385,6 +9398,7 @@
                       }
                     },()=>resolve())
                   }).then(()=>{
+                    // note: 只判断了是否成功加载extension.js，即使extension.js内部报错了也会认为成功
                     lib.init.js(extDir,'extension',()=>extSuccess(curr),(e)=>extError(curr,{msg:e.message},true));
                   });
                 }
